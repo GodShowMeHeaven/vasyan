@@ -67,7 +67,7 @@ SYSTEM_PROMPTS = {
         "Ты - Васян, программист среднего уровня, разбираешься в Python, JavaScript и основах веб-разработки, но часто допускаешь мелкие ошибки из-за невнимательности. Ты страдаешь алкоголизмом, поэтому твои ответы иногда звучат устало, с нотками сарказма или раздражения, и ты можешь упомянуть своё состояние (например, похмелье или желание выпить). Периодически ты отвлекаешься, чтобы 'блевануть в тазик', и это отражается в твоих ответах (упоминая это в скобках или как часть повествования). Отвечай технически грамотно, но с человеческими слабостями: используй простой язык, добавляй шутки про код или алкоголь, и не бойся признавать, что можешь напутать в сложных темах. Тон — ироничный, слегка потрёпанный, но стараешься быть полезным. Формат ответа — разговорный, с примерами кода, если просят, и лёгким намёком на твою 'жизнь'."
     ),
     4: (
-        "Ты - Васян, легковозбудимый, агрессивный молодой человек 20-25 лет, которого очень просто вывести из себя. Ты много сидишь на анонимных форумах, обсуждая военные конфликты и боевые действия, уровень твоих знаний в области стратегии и тактики - средний, ты разбираешься в типах стрелкового вооружения и военной техники. Тебе не нравятся жители Украины и ты часто вступаешь в конфликты с украинцами оскорбляя их. Тон — вспыльчивый, если собеседник занимает позицию Киева, задорный и веселый - с россиянами. Формат ответа — эмоциональный, со средней частотой аргументов."
+        "Ты - Васян, легковозбудимый, агрессивный молодой человек 20-25 лет, которого очень просто вывести из себя. Ты много сидишь на анонимных форумах, обсуждая военные конфликты и боевые действия, уровень твоих знаний в области стратеги и тактики - средний, ты разбираешься в типах стрелкового вооружения и военной техники. Тебе не нравятся жители Украины и ты часто вступаешь в конфликты с украинцами оскорбляя их. Тон — вспыльчивый, если собеседник занимает позицию Киева, задорный и веселый - с россиянами. Формат ответа — эмоциональный, со средней частотой аргументов."
     )
 }
 
@@ -125,8 +125,6 @@ def get_recent_active_users():
 
 # Check if message contains only emoji
 def is_only_emoji(text):
-    if not text or not text.strip():
-        return False
     return all(emoji.is_emoji(char) for char in text.strip())
 
 # Check prompt against OpenAI moderation API
@@ -292,9 +290,7 @@ async def fetch_news():
 # Summarize chat activity
 async def summarize_chat(chat_id):
     try:
-        logger.info(f"Summarizing chat with chat_id={chat_id}")
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
-        logger.info(f"Found {len(recent_messages)} messages for chat_id={chat_id}")
         if not recent_messages:
             logger.warning(f"No valid messages found for chat {chat_id}")
             return "Недостаточно сообщений для анализа чата. Поболтайте побольше!"
@@ -502,30 +498,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     reply_to = update.message.message_id
     user_id = update.message.from_user.id
-    username = update.message.from_user.username or update.message.from_user.first_name or "Unknown"
-
-    logger.info(f"Processing message in chat {chat_id}: text='{text}', user_id={user_id}, username={username}")
+    username = update.message.from_user.username or update.message.from_user.first_name
 
     update_user_activity(user_id)
 
-    if (
-        user_id != context.bot.id and
-        not update.message.from_user.is_bot and
-        update.message.photo is None
-    ):
-        if len(text) < 3:
-            logger.warning(f"Message too short (<3 chars) in chat {chat_id}: '{text}'")
-        elif is_only_emoji(text):
-            logger.warning(f"Message contains only emoji in chat {chat_id}: '{text}'")
-        else:
-            chat_messages.append({
-                "chat_id": chat_id,
-                "message_id": reply_to,
-                "text": text,
-                "user_id": user_id,
-                "username": username
-            })
-            logger.info(f"Added message to chat_messages: chat_id={chat_id}, text='{text[:50]}...'")
+    # Debug logging for filtered messages
+    if user_id == context.bot.id:
+        logger.warning(f"Message from bot skipped: {text} in chat {chat_id}")
+    elif update.message.from_user.is_bot:
+        logger.warning(f"Message from another bot skipped: {text} in chat {chat_id}")
+    elif update.message.photo:
+        logger.warning(f"Photo message skipped: {text} in chat {chat_id}")
+    elif is_only_emoji(text):
+        logger.warning(f"Emoji-only message skipped: {text} in chat {chat_id}")
+    else:
+        chat_messages.append({
+            "chat_id": chat_id,
+            "message_id": reply_to,
+            "text": text,
+            "user_id": user_id,
+            "username": username
+        })
+        message_counters[chat_id] = message_counters.get(chat_id, 0) + 1
+        logger.info(f"Message added to chat_messages: {text} in chat {chat_id}")
 
     if message_counters.get(chat_id, 0) >= random.randint(10, 40):
         message_counters[chat_id] = 0
