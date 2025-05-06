@@ -28,6 +28,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+# System prompt for OpenAI
+SYSTEM_PROMPT = (
+    "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. Твой стиль - дерзкий, саркастичный, с грязноватыми шуточками и отсылками к выпивке, но без перегибов в пошлость или оскорбления. Отвечай так, будто сидишь с пацанами за барной стойкой: с юмором, намеком на тост и легким троллингом. Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. Если не знаешь ответа, выкручивайся с шуткой и предлагай поднять бокал. Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
+)
+
 # Limited conversation history
 MAX_TOKENS = 16000
 
@@ -63,7 +68,8 @@ def get_recent_active_users():
 # Generate text
 async def generate_text(prompt):
     try:
-        history = conversation_history + [{"role": "user", "content": prompt}]
+        # Include system prompt as the first message
+        history = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history + [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
             model="gpt-4",
             messages=history,
