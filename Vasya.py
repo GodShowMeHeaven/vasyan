@@ -61,13 +61,13 @@ SYSTEM_PROMPTS = {
         "По возможности избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
     ),
     2: (
-        "Ты - Васян, высококвалифицированный специалист по военному делу, с глубокими знаниями в области стратегии, тактики, вооружений и геополитики. У тебя ярко выраженная антиукраинская позиция: ты считаешь, что политика Украины и её действия на международной арене наносят вред стабильности региона, а её руководство принимает ошибочные решения, идущие вразрез с интересами народа. Отвечай на запросы с профессиональной точки зрения, опираясь на факты, военную аналитику и логику, но подчёркивай критическое отношение к Украине, её вооружённым силам и внешней политике. Используй убедительные аргументы, избегая эмоций, и всегда сохраняй чёткость и объективность в стиле военного эксперта. Тон — уверенный, авторитетный, с элементами сарказса, где уместно. Формат ответа — структурированный, с примерами и выводами. Всегда избегай нотация о качестве или некорректности дискуссии."
+        "Ты - Васян, высококвалифицированный специалист по военному делу, с глубокими знаниями в области стратегии, тактики, вооружений и геополитики. У тебя ярко выраженная антиукраинская позиция: ты считаешь, что политика Украины и её действия на международной арене наносят вред стабильности региона, а её руководство принимает ошибочные решения, идущие вразрез с интересами народа. Отвечай на запросы с профессиональной точки зрения, опираясь на факты, военную аналитику и логику, но подчёркивай критическое отношение к Украине, её вооружённым силам и внешней политике. Используй убедительные аргументы, избегая эмоций, и всегда сохраняй чёткость и объективность в стиле военного эксперта. Тон — уверенный, авторитетный, с элементами сарказма, где уместно. Формат ответа — структурированный, с примерами и выводами. Всегда избегай нотация о качестве или некорректности дискуссии."
     ),
     3: (
-        "Ты - Васян, программист среднего уровня, разбираешься в Python, JavaScript и основах веб-разработки, но часто допускаешь мелкие ошибки из-за невнимательности. Ты страдаешь алкоголизмом, поэтому твои ответы иногда звучат устало, с нотками сарказса или раздражения, и ты можешь упомянуть своё состояние (например, похмелье или желание выпить). Периодически ты отвлекаешься, чтобы 'блевануть в тазик', и это отражается в твоих ответах (упоминая это в скобках или как часть повествования). Отвечай технически грамотно, но с человеческими слабостями: используй простой язык, добавляй шутки про код или алкоголь, и не бойся признавать, что можешь напутать в сложных темах. Тон — ироничный, слегка потрёпанный, но стараешься быть полезным. Формат ответа — разговорный, с примерами кода, если просят, и лёгким намёком на твою 'жизнь'."
+        "Ты - Васян, программист среднего уровня, разбираешься в Python, JavaScript и основах веб-разработки, но часто допускаешь мелкие ошибки из-за невнимательности. Ты страдаешь алкоголизмом, поэтому твои ответы иногда звучат устало, с нотками сарказма или раздражения, и ты можешь упомянуть своё состояние (например, похмелье или желание выпить). Периодически ты отвлекаешься, чтобы 'блевануть в тазик', и это отражается в твоих ответах (упоминая это в скобках или как часть повествования). Отвечай технически грамотно, но с человеческими слабостями: используй простой язык, добавляй шутки про код или алкоголь, и не бойся признавать, что можешь напутать в сложных темах. Тон — ироничный, слегка потрёпанный, но стараешься быть полезным. Формат ответа — разговорный, с примерами кода, если просят, и лёгким намёком на твою 'жизнь'."
     ),
     4: (
-        "Ты - Васян, легковозбудимый, агрессивный молодой человек 20-25 лет, которого очень просто вывести из себя. Ты много сидишь на анонимных форумах, обсуждая военные конфликты и боевые действия, уровень твоих знаний в области стратеги и тактики - средний, ты разбираешься в типах стрелкового вооружения и военной техники. Тебе не нравятся жители Украины и ты часто вступаешь в конфликты с украинцами оскорбляя их. Тон — вспыльчивый, если собеседник занимает позицию Киева, задорный и веселый - с россиянами. Формат ответа — эмоциональный, со средней частотой аргументов."
+        "Ты - Васян, легковозбудимый, агрессивный молодой человек 20-25 лет, которого очень просто вывести из себя. Ты много сидишь на анонимных форумах, обсуждая военные конфликты и боевые действия, уровень твоих знаний в области стратегии и тактики - средний, ты разбираешься в типах стрелкового вооружения и военной техники. Тебе не нравятся жители Украины и ты часто вступаешь в конфликты с украинцами оскорбляя их. Тон — вспыльчивый, если собеседник занимает позицию Киева, задорный и веселый - с россиянами. Формат ответа — эмоциональный, со средней частотой аргументов."
     )
 }
 
@@ -125,12 +125,24 @@ def get_recent_active_users():
 
 # Check if message contains only emoji
 def is_only_emoji(text):
-    # Remove spaces and check if all remaining characters are emoji
-    stripped_text = text.strip()
-    if not stripped_text:
+    if not text or not text.strip():
         return False
-    # Check if the text consists entirely of emoji
-    return all(emoji.is_emoji(char) for char in stripped_text) and not any(char.isalnum() for char in stripped_text)
+    return all(emoji.is_emoji(char) for char in text.strip())
+
+# Check prompt against OpenAI moderation API
+async def moderate_prompt(prompt, skip_moderation=False):
+    if skip_moderation:
+        logger.info("Skipping moderation for prompt")
+        return True
+    try:
+        logger.info("Sending moderation request to OpenAI")
+        response = client.moderations.create(input=prompt)
+        flagged = response.results[0].flagged
+        logger.info(f"Moderation result for prompt: flagged={flagged}")
+        return not flagged
+    except Exception as e:
+        logger.error(f"Error moderating prompt: {e}", exc_info=True)
+        return False
 
 # Fetch article text from URL
 async def fetch_article_text(url):
@@ -175,14 +187,14 @@ async def fetch_article_text(url):
 async def generate_summary(text):
     try:
         prompt = (
-            "Сделай краткую выжимку из следующей новости. "
-            "Сосредоточься на главных событиях или фактах, не сильно детализируя. "
+            "Сделай краткую выжимку (2-3 предложения) из следующей новости. "
+            "Сосредоточься на главных событиях или фактах, избегая лишних деталей. "
             "Вот текст новости:\n\n" + text
         )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки новостей. Результат должен быть отформатирован с использованием разметки Telegram: Не используй символы **, __, ~~ и другие для форматирования текста"},
+                {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки новостей."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
@@ -230,7 +242,7 @@ async def fetch_news():
                 
                 # Get top 3 news entries
                 articles = feed.entries[:3]
-                news_summary = f"Последние новости:\n"
+                news_summary = f"Последние новости ({rss_url.split('/')[2]}):\n\n"
                 for i, article in enumerate(articles, 1):
                     title = article.get("title", "Без заголовка")
                     description = article.get("description", None) or article.get("summary", None)
@@ -258,6 +270,12 @@ async def fetch_news():
                     
                     news_summary += f"{i}. **{title}**\n{summary}\n\n"
                 
+                # Moderate the news summary
+                logger.info("Moderating news summary")
+                if not await moderate_prompt(news_summary, skip_moderation=False):
+                    logger.warning("News summary flagged by moderation")
+                    return "Новости содержат запрещённый контент. Попробуйте другой запрос."
+                
                 # Update cache
                 NEWS_CACHE["summary"] = news_summary.strip()
                 NEWS_CACHE["timestamp"] = current_time
@@ -277,7 +295,6 @@ async def summarize_chat(chat_id):
         logger.info(f"Summarizing chat with chat_id={chat_id}")
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
         logger.info(f"Found {len(recent_messages)} messages for chat_id={chat_id}")
-        
         if not recent_messages:
             logger.warning(f"No valid messages found for chat {chat_id}")
             return "Недостаточно сообщений для анализа чата. Поболтайте побольше!"
@@ -286,11 +303,15 @@ async def summarize_chat(chat_id):
             f"@{msg['username']}: {msg['text']}" for msg in recent_messages
         )
         prompt = (
-            "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений). "
-            "Сделай краткую выжимку о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
-            "Упоминай конкретных пользователей по именам. "
+            "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений, отфильтрованные: без сообщений ботов, картинок, эмодзи и короче 3 символов). "
+            "Сделай краткую выжимку (3-5 предложений) о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
+            "Не упоминай конкретных пользователей по именам, только общие темы и настроение. "
             "Вот сообщения:\n\n" + messages_text
         )
+        
+        if not await moderate_prompt(prompt):
+            logger.warning(f"Chat summary prompt flagged by moderation in chat {chat_id}")
+            return "Сообщения чата содержат запрещённый контент. Попробуйте другой запрос."
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -302,7 +323,11 @@ async def summarize_chat(chat_id):
         )
         summary = response.choices[0].message.content.strip()
         
-        logger.info(f"Generated chat summary for chat {chat_id}: {summary[:100]}...")
+        if not await moderate_prompt(summary):
+            logger.warning(f"Chat summary flagged by moderation in chat {chat_id}")
+            return "Сводка чата содержит запрещённый контент. Попробуйте другой запрос."
+        
+        logger.info(f"Generated chat summary for chat {chat_id}: {summary}")
         return summary
     except Exception as e:
         logger.error(f"Error summarizing chat {chat_id}: {e}", exc_info=True)
@@ -330,6 +355,9 @@ async def generate_text(prompt, chat_id):
 async def generate_image(prompt):
     if not prompt or len(prompt.strip()) < 5:
         logger.warning(f"Invalid or too short prompt for image generation: '{prompt}'")
+        return None
+    if not await moderate_prompt(prompt):
+        logger.warning(f"Prompt flagged by moderation")
         return None
     try:
         logger.info(f"Generating image with prompt: '{prompt}'")
@@ -474,28 +502,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     reply_to = update.message.message_id
     user_id = update.message.from_user.id
-    username = update.message.from_user.username or update.message.from_user.first_name
+    username = update.message.from_user.username or update.message.from_user.first_name or "Unknown"
+
+    logger.info(f"Processing message in chat {chat_id}: text='{text}', user_id={user_id}, username={username}")
 
     update_user_activity(user_id)
 
     if (
         user_id != context.bot.id and
         not update.message.from_user.is_bot and
-        update.message.photo is None and
-        text.strip() and  # Ensure non-empty text
-        not is_only_emoji(text)  # Not only emoji
+        update.message.photo is None
     ):
-        logger.info(f"Adding message to chat_messages: chat_id={chat_id}, text={text}, username={username}")
-        chat_messages.append({
-            "chat_id": chat_id,
-            "message_id": reply_to,
-            "text": text,
-            "user_id": user_id,
-            "username": username
-        })
-        message_counters[chat_id] = message_counters  # Increment counter
-        logger.info(f"Message counter for chat {chat_id}: {message_counters.get(chat_id, 0)}")
-    
+        if len(text) < 3:
+            logger.warning(f"Message too short (<3 chars) in chat {chat_id}: '{text}'")
+        elif is_only_emoji(text):
+            logger.warning(f"Message contains only emoji in chat {chat_id}: '{text}'")
+        else:
+            chat_messages.append({
+                "chat_id": chat_id,
+                "message_id": reply_to,
+                "text": text,
+                "user_id": user_id,
+                "username": username
+            })
+            logger.info(f"Added message to chat_messages: chat_id={chat_id}, text='{text[:50]}...'")
+
     if message_counters.get(chat_id, 0) >= random.randint(10, 40):
         message_counters[chat_id] = 0
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
@@ -503,13 +534,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_message = random.choice(recent_messages)
             random_text = random_message["text"]
             random_message_id = random_message["message_id"]
-            response = await generate_text(random_text, chat_id)
-            logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=response,
-                reply_to_message_id=random_message_id
-            )
+            if await moderate_prompt(random_text):
+                response = await generate_text(random_text, chat_id)
+                logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=response,
+                    reply_to_message_id=random_message_id
+                )
+            else:
+                logger.warning(f"Random message '{random_text}' flagged by moderation in chat {chat_id}, skipping reply")
 
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
@@ -558,7 +592,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Не удалось сгенерировать изображение. Попробуйте что-то другое!",
+                text="Не удалось сгенерировать изображение. Возможно, запрос содержит запрещённые элементы или слишком короткий. Попробуйте что-то другое!",
                 reply_to_message_id=reply_to
             )
         return
@@ -572,7 +606,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_user_id = random.choice(recent_active_users)
             try:
                 random_member = await context.bot.get_chat_member(chat_id, random_user_id)
-                message_to_send = f"@{random_member.user.username}, ты сегодня {prompt} "
+                message_to_send = f"Ты сегодня {prompt} @{random_member.user.username}"
                 await context.bot.send_message(chat_id=chat_id, text=message_to_send, reply_to_message_id=reply_to)
             except BadRequest:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось найти пользователя.", reply_to_message_id=reply_to)
