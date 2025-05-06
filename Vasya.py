@@ -21,11 +21,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Load environment variables
+logger.info("Loading environment variables")
 load_dotenv()
+if not os.path.exists('.env'):
+    logger.error("Environment file (.env) not found")
+    exit(1)
 
 # Tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Validate tokens
+if not TELEGRAM_TOKEN:
+    logger.error("TELEGRAM_TOKEN is not set in .env")
+    exit(1)
+if not OPENAI_API_KEY:
+    logger.error("OPENAI_API_KEY is not set in .env")
+    exit(1)
+
+logger.info("Environment variables loaded successfully")
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -134,7 +148,6 @@ async def fetch_news():
         for i, article in enumerate(articles, 1):
             title = article.get("title", "Без заголовка")
             description = article.get("description", "Без описания")
-            # Remove HTML tags from description if necessary
             description = description.replace("<p>", "").replace("</p>", "").strip()
             news_summary += f"{i}. **{title}**\n{description}\n\n"
         
@@ -152,13 +165,11 @@ async def fetch_news():
 # Summarize chat activity
 async def summarize_chat(chat_id):
     try:
-        # Get recent messages for this chat
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
         if not recent_messages:
             logger.warning(f"No valid messages found for chat {chat_id}")
             return "Недостаточно сообщений для анализа чата. Поболтайте побольше!"
         
-        # Format messages for OpenAI
         messages_text = "\n".join(
             f"@{msg['username']}: {msg['text']}" for msg in recent_messages
         )
@@ -169,12 +180,10 @@ async def summarize_chat(chat_id):
             "Вот сообщения:\n\n" + messages_text
         )
         
-        # Moderate the prompt
         if not await moderate_prompt(prompt):
             logger.warning(f"Chat summary prompt flagged by moderation in chat {chat_id}")
             return "Сообщения чата содержат запрещённый контент. Попробуйте другой запрос."
         
-        # Generate summary with OpenAI
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -185,7 +194,6 @@ async def summarize_chat(chat_id):
         )
         summary = response.choices[0].message.content.strip()
         
-        # Moderate the summary
         if not await moderate_prompt(summary):
             logger.warning(f"Chat summary flagged by moderation in chat {chat_id}")
             return "Сводка чата содержит запрещённый контент. Попробуйте другой запрос."
@@ -297,7 +305,6 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     reply_to = update.message.message_id
 
-    # Check if user is admin
     try:
         member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
         if member.status not in ['administrator', 'creator']:
@@ -316,7 +323,6 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Check if argument is provided
     if not context.args:
         prompt_list = "\n".join([f"{key}: {value[:50]}..." for key, value in SYSTEM_PROMPTS.items()])
         await context.bot.send_message(
@@ -326,7 +332,6 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Parse prompt number
     try:
         prompt_number = int(context.args[0])
         if prompt_number not in SYSTEM_PROMPTS:
@@ -344,7 +349,6 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Update system prompt for this chat
     SYSTEM_PROMPTS_BY_CHAT[chat_id] = SYSTEM_PROMPTS[prompt_number]
     logger.info(f"System prompt changed to prompt {prompt_number} in chat {chat_id} by admin {user_id}")
     await context.bot.send_message(
@@ -364,16 +368,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or update.message.from_user.first_name
 
-    # Update user activity
     update_user_activity(user_id)
 
-    # Filter and store valid messages
     if (
-        user_id != context.bot.id and  # Not from this bot
-        not update.message.from_user.is_bot and  # Not from other bots
-        update.message.photo is None and  # No photos
-        len(text) >= 3 and  # At least 3 characters
-        not is_only_emoji(text)  # Not only emoji
+        user_id != context.bot.id and
+        not update.message.from_user.is_bot and
+        update.message.photo is None and
+        len(text) >= 3 and
+        not is_only_emoji(text)
     ):
         chat_messages.append({
             "chat_id": chat_id,
@@ -382,20 +384,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "user_id": user_id,
             "username": username
         })
-        # Update message counter for random replies
         message_counters[chat_id] = message_counters.get(chat_id, 0) + 1
 
-    # Check for random reply
     if message_counters.get(chat_id, 0) >= random.randint(10, 40):
-        # Reset counter
         message_counters[chat_id] = 0
-        # Select a random message from chat_messages
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
         if recent_messages:
             random_message = random.choice(recent_messages)
             random_text = random_message["text"]
             random_message_id = random_message["message_id"]
-            # Generate reply
             if await moderate_prompt(random_text):
                 response = await generate_text(random_text, chat_id)
                 logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
@@ -413,23 +410,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     generate_news = ["последние новости", "новости", "что нового"]
     generate_summary = ["что с чатом"]
 
-    # Check if bot is mentioned or replied to
     is_bot_mentioned = any(bot_name in text for bot_name in bot_names)
     is_reply_to_bot = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
 
-    # Option 1: Require bot mention or reply (current behavior)
     if not (is_bot_mentioned or is_reply_to_bot):
         return
 
-    # Option 2: Allow "последние новости" without mentioning bot (uncomment to enable)
-    # if not (is_bot_mentioned or is_reply_to_bot or any(news in text.lower() for news in generate_news)):
-    #     return
-
-    # Remove bot name from text
     for bot_name in bot_names:
         text = text.replace(bot_name, "").strip()
 
-    # Handle chat summary request
     if any(summary in text.lower() for summary in generate_summary):
         logger.info(f"Chat summary request in chat {chat_id}")
         await context.bot.send_message(chat_id=chat_id, text="Анализирую, что творится в чате...", reply_to_message_id=reply_to)
@@ -437,7 +426,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=summary, reply_to_message_id=reply_to)
         return
 
-    # Handle news request
     if any(news in text.lower() for news in generate_news):
         logger.info(f"News request in chat {chat_id}: {text}")
         await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости с РБК...", reply_to_message_id=reply_to)
@@ -445,7 +433,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=news_summary, reply_to_message_id=reply_to)
         return
 
-    # Handle image generation
     if any(pic in text.lower() for pic in generate_pic):
         prompt = text.lower()
         for pic in generate_pic:
@@ -469,7 +456,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Handle user randomization
     if any(rand in text.lower() for rand in generate_random):
         prompt = text.lower()
         for rand in generate_random:
@@ -487,7 +473,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text="Нет активных пользователей за последние 6 часов.", reply_to_message_id=reply_to)
         return
 
-    # Handle text response
     response = await generate_text(text, chat_id)
     await context.bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=reply_to)
 
@@ -495,9 +480,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     lock_fd = None
     try:
-        # Acquire lock to prevent multiple instances
+        logger.info("Acquiring lock")
         lock_fd = acquire_lock()
+        logger.info("Building Telegram application")
         app = Application.builder().token(TELEGRAM_TOKEN).build()
+        logger.info("Adding handlers")
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
         app.add_handler(CommandHandler("setprompt", set_prompt))
         app.add_error_handler(error_handler)
@@ -509,7 +496,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Unexpected error in main: {e}", exc_info=True)
         exit(1)
     finally:
         if lock_fd is not None:
@@ -518,4 +505,5 @@ def main():
             logger.info("Lock released")
 
 if __name__ == "__main__":
+    logger.info("Starting bot")
     main()
