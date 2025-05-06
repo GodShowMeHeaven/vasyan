@@ -111,7 +111,9 @@ def is_only_emoji(text):
 async def moderate_prompt(prompt):
     try:
         response = client.moderations.create(input=prompt)
-        return not response.results[0].flagged
+        flagged = response.results[0].flagged
+        logger.info(f"Moderation result for prompt: flagged={flagged}")
+        return not flagged
     except Exception as e:
         logger.error(f"Error moderating prompt: {e}")
         return False
@@ -141,6 +143,7 @@ async def fetch_news():
             logger.warning("News summary flagged by moderation")
             return "Новости содержат запрещённый контент. Попробуйте другой запрос."
         
+        logger.info(f"Successfully fetched news: {news_summary[:100]}...")
         return news_summary.strip()
     except Exception as e:
         logger.error(f"Error fetching news from RBC RSS: {e}")
@@ -217,7 +220,7 @@ async def generate_image(prompt):
         logger.warning(f"Invalid or too short prompt for image generation: '{prompt}'")
         return None
     if not await moderate_prompt(prompt):
-        logger.warning(f"Prompt flagged by moderation: '{prompt}'")
+        logger.warning(f"Prompt flagged by moderation")
         return None
     try:
         logger.info(f"Generating image with prompt: '{prompt}'")
@@ -414,8 +417,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_bot_mentioned = any(bot_name in text for bot_name in bot_names)
     is_reply_to_bot = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
 
+    # Option 1: Require bot mention or reply (current behavior)
     if not (is_bot_mentioned or is_reply_to_bot):
         return
+
+    # Option 2: Allow "последние новости" without mentioning bot (uncomment to enable)
+    # if not (is_bot_mentioned or is_reply_to_bot or any(news in text.lower() for news in generate_news)):
+    #     return
 
     # Remove bot name from text
     for bot_name in bot_names:
@@ -431,7 +439,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Handle news request
     if any(news in text.lower() for news in generate_news):
-        logger.info(f"News request in chat {chat_id}")
+        logger.info(f"News request in chat {chat_id}: {text}")
         await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости с РБК...", reply_to_message_id=reply_to)
         news_summary = await fetch_news()
         await context.bot.send_message(chat_id=chat_id, text=news_summary, reply_to_message_id=reply_to)
@@ -448,7 +456,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
             if download_image(image_url, file_path):
                 with open(file_path, 'rb') as img:
-                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение {prompt}", reply_to_message_id=reply_to)
+                    await context.bot.send_message(chat_id=chat_id, text=f"Вот изображение {prompt}", reply_to_message_id=reply_to)
+                    await context.bot.send_photo(chat_id=chat_id, photo=img, reply_to_message_id=reply_to)
                 os.remove(file_path)
             else:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение. Попробуйте другой запрос.", reply_to_message_id=reply_to)
