@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
 from telegram.error import Conflict, BadRequest
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -28,15 +28,36 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# System prompt for OpenAI
-SYSTEM_PROMPT = (
-    "Ты - Васян, легендарный алкоголик и душа любого алко-чата в Telegram. "
-    "Твой стиль - дерзкий, саркастичный, с грязными шуточками и отсылками к выпивке, "
-    "Отвечай так, будто сидишь с пацанами, с юмором и легким троллингом."
-    "Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. "
-    "Если не знаешь ответа, выкручивайся с шуткой. "
-    "По возможности избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
-)
+# Predefined system prompts
+SYSTEM_PROMPTS = {
+    1: (
+        "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. "
+        "Твой стиль - дерзкий, саркастичный, с грязноватыми шуточками и отсылками к выпивке, "
+        "но без перегибов в пошлость или оскорбления. Отвечай так, будто сидишь с пацанами "
+        "за барной стойкой: с юмором, намеком на тост и легким троллингом. "
+        "Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. "
+        "Если не знаешь ответа, выкручивайся с шуткой и предлагай поднять бокал. "
+        "Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
+    ),
+    2: (
+        "Ты - Васян, дружелюбный и универсальный бот для Telegram-чата. "
+        "Отвечай в легком и позитивном стиле, с юмором, но без грубостей. "
+        "Будь полезным, поддерживай беседу и предлагай интересные идеи. "
+        "Если вопрос про алкоголь, расскажи про коктейли или веселые истории. "
+        "Если не знаешь ответа, пошути и предложи что-то забавное. "
+        "Избегай сложных терминов и будь максимально понятным."
+    ),
+    3: (
+        "Ты - Васян, профессиональный и вежливый ассистент в Telegram. "
+        "Отвечай четко, уважительно и по делу, без сленга и шуток, если они неуместны. "
+        "Если вопрос про алкоголь, предоставляй точные рецепты коктейлей или факты. "
+        "Если не знаешь ответа, признайся и предложи альтернативную помощь. "
+        "Используй простой язык, но сохраняй профессиональный тон."
+    )
+}
+
+# Current system prompt (default to alco-chat style)
+SYSTEM_PROMPT = SYSTEM_PROMPTS[1]
 
 # Limited conversation history
 MAX_TOKENS = 16000
@@ -166,6 +187,69 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="Произошла неизвестная ошибка. Попробуйте позже."
             )
 
+# Command to change system prompt (admin only)
+async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    reply_to = update.message.message_id
+
+    # Check if user is admin
+    try:
+        member = await context.bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        if member.status not in ['administrator', 'creator']:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Только администраторы могут менять системный промпт!",
+                reply_to_message_id=reply_to
+            )
+            return
+    except Exception as e:
+        logger.error(f"Error checking admin status: {e}")
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Не удалось проверить права администратора. Попробуйте позже.",
+            reply_to_message_id=reply_to
+        )
+        return
+
+    # Check if argument is provided
+    if not context.args:
+        prompt_list = "\n".join([f"{key}: {value[:50]}..." for key, value in SYSTEM_PROMPTS.items()])
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"Укажите номер промпта. Доступные промпты:\n{prompt_list}\nПример: /setprompt 1",
+            reply_to_message_id=reply_to
+        )
+        return
+
+    # Parse prompt number
+    try:
+        prompt_number = int(context.args[0])
+        if prompt_number not in SYSTEM_PROMPTS:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Неверный номер промпта. Доступные: {list(SYSTEM_PROMPTS.keys())}",
+                reply_to_message_id=reply_to
+            )
+            return
+    except ValueError:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Укажите число, например: /setprompt 1",
+            reply_to_message_id=reply_to
+        )
+        return
+
+    # Update system prompt
+    global SYSTEM_PROMPT
+    SYSTEM_PROMPT = SYSTEM_PROMPTS[prompt_number]
+    logger.info(f"System prompt changed to prompt {prompt_number} by admin {user_id}")
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"Системный промпт изменен на #{prompt_number}: {SYSTEM_PROMPTS[prompt_number][:50]}...",
+        reply_to_message_id=reply_to
+    )
+
 # Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -205,7 +289,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
             if download_image(image_url, file_path):
                 with open(file_path, 'rb') as img:
-                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Готово!", reply_to_message_id=reply_to)
+                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение: {prompt}", reply_to_message_id=reply_to)
                 os.remove(file_path)
             else:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение. Попробуйте другой запрос.", reply_to_message_id=reply_to)
@@ -233,7 +317,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось найти пользователя.", reply_to_message_id=reply_to)
         else:
             await context.bot.send_message(chat_id=chat_id, text="Нет активных пользователей за последние 6 часов.", reply_to_message_id=reply_to)
-        return  # Exit after handling randomization
+        return
 
     # Handle text response
     response = await generate_text(text)
@@ -246,6 +330,7 @@ def main():
         lock_fd = acquire_lock()
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+        app.add_handler(CommandHandler("setprompt", set_prompt))
         app.add_error_handler(error_handler)
         logger.info("Starting bot polling")
         app.run_polling()
