@@ -125,22 +125,12 @@ def get_recent_active_users():
 
 # Check if message contains only emoji
 def is_only_emoji(text):
-    return all(emoji.is_emoji(char) for char in text.strip())
-
-# Check prompt against OpenAI moderation API
-async def moderate_prompt(prompt, skip_moderation=False):
-    if skip_moderation:
-        logger.info("Skipping moderation for prompt")
-        return True
-    try:
-        logger.info("Sending moderation request to OpenAI")
-        response = client.moderations.create(input=prompt)
-        flagged = response.results[0].flagged
-        logger.info(f"Moderation result for prompt: flagged={flagged}")
-        return not flagged
-    except Exception as e:
-        logger.error(f"Error moderating prompt: {e}", exc_info=True)
+    # Remove spaces and check if all remaining characters are emoji
+    stripped_text = text.strip()
+    if not stripped_text:
         return False
+    # Check if the text consists entirely of emoji
+    return all(emoji.is_emoji(char) for char in stripped_text) and not any(char.isalnum() for char in stripped_text)
 
 # Fetch article text from URL
 async def fetch_article_text(url):
@@ -185,10 +175,10 @@ async def fetch_article_text(url):
 async def generate_summary(text):
     try:
         prompt = (
-    "Сделай краткую выжимку из следующей новости. "
-    "Сосредоточься на главных событиях или фактах, не сильно детализируя. "
-    "Вот текст новости:\n\n" + text
-                )
+            "Сделай краткую выжимку из следующей новости. "
+            "Сосредоточься на главных событиях или фактах, не сильно детализируя. "
+            "Вот текст новости:\n\n" + text
+        )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -268,12 +258,6 @@ async def fetch_news():
                     
                     news_summary += f"{i}. **{title}**\n{summary}\n\n"
                 
-                # Moderate the news summary
-                logger.info("Moderating news summary")
-                if not await moderate_prompt(news_summary, skip_moderation=False):
-                    logger.warning("News summary flagged by moderation")
-                    return "Новости содержат запрещённый контент. Попробуйте другой запрос."
-                
                 # Update cache
                 NEWS_CACHE["summary"] = news_summary.strip()
                 NEWS_CACHE["timestamp"] = current_time
@@ -290,7 +274,10 @@ async def fetch_news():
 # Summarize chat activity
 async def summarize_chat(chat_id):
     try:
+        logger.info(f"Summarizing chat with chat_id={chat_id}")
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
+        logger.info(f"Found {len(recent_messages)} messages for chat_id={chat_id}")
+        
         if not recent_messages:
             logger.warning(f"No valid messages found for chat {chat_id}")
             return "Недостаточно сообщений для анализа чата. Поболтайте побольше!"
@@ -299,15 +286,11 @@ async def summarize_chat(chat_id):
             f"@{msg['username']}: {msg['text']}" for msg in recent_messages
         )
         prompt = (
-            "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений, отфильтрованные: без сообщений ботов, картинок, эмодзи и короче 3 символов). "
-            "Сделай краткую выжимку  о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
+            "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений). "
+            "Сделай краткую выжимку о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
             "Упоминай конкретных пользователей по именам. "
             "Вот сообщения:\n\n" + messages_text
         )
-        
-        if not await moderate_prompt(prompt):
-            logger.warning(f"Chat summary prompt flagged by moderation in chat {chat_id}")
-            return "Сообщения чата содержат запрещённый контент. Попробуйте другой запрос."
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -319,11 +302,7 @@ async def summarize_chat(chat_id):
         )
         summary = response.choices[0].message.content.strip()
         
-        if not await moderate_prompt(summary):
-            logger.warning(f"Chat summary flagged by moderation in chat {chat_id}")
-            return "Сводка чата содержит запрещённый контент. Попробуйте другой запрос."
-        
-        logger.info(f"Generated chat summary for chat {chat_id}: {summary}")
+        logger.info(f"Generated chat summary for chat {chat_id}: {summary[:100]}...")
         return summary
     except Exception as e:
         logger.error(f"Error summarizing chat {chat_id}: {e}", exc_info=True)
@@ -351,9 +330,6 @@ async def generate_text(prompt, chat_id):
 async def generate_image(prompt):
     if not prompt or len(prompt.strip()) < 5:
         logger.warning(f"Invalid or too short prompt for image generation: '{prompt}'")
-        return None
-    if not await moderate_prompt(prompt):
-        logger.warning(f"Prompt flagged by moderation")
         return None
     try:
         logger.info(f"Generating image with prompt: '{prompt}'")
@@ -506,9 +482,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id != context.bot.id and
         not update.message.from_user.is_bot and
         update.message.photo is None and
-        len(text) >= 3 and
-        not is_only_emoji(text)
+        text.strip() and  # Ensure non-empty text
+        not is_only_emoji(text)  # Not only emoji
     ):
+        logger.info(f"Adding message to chat_messages: chat_id={chat_id}, text={text}, username={username}")
         chat_messages.append({
             "chat_id": chat_id,
             "message_id": reply_to,
@@ -516,8 +493,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "user_id": user_id,
             "username": username
         })
-        message_counters[chat_id] = message_counters.get(chat_id, 0) + 1
-
+        message_counters[chat_id] = message_counters  # Increment counter
+        logger.info(f"Message counter for chat {chat_id}: {message_counters.get(chat_id, 0)}")
+    
     if message_counters.get(chat_id, 0) >= random.randint(10, 40):
         message_counters[chat_id] = 0
         recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
@@ -525,16 +503,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_message = random.choice(recent_messages)
             random_text = random_message["text"]
             random_message_id = random_message["message_id"]
-            if await moderate_prompt(random_text):
-                response = await generate_text(random_text, chat_id)
-                logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=response,
-                    reply_to_message_id=random_message_id
-                )
-            else:
-                logger.warning(f"Random message '{random_text}' flagged by moderation in chat {chat_id}, skipping reply")
+            response = await generate_text(random_text, chat_id)
+            logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=response,
+                reply_to_message_id=random_message_id
+            )
 
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
@@ -583,7 +558,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Не удалось сгенерировать изображение. Возможно, запрос содержит запрещённые элементы или слишком короткий. Попробуйте что-то другое!",
+                text="Не удалось сгенерировать изображение. Попробуйте что-то другое!",
                 reply_to_message_id=reply_to
             )
         return
