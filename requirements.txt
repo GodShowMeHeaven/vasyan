@@ -2,4 +2,3 @@ requests
 python-telegram-bot
 openai
 python-dotenv
- 
