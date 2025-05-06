@@ -10,6 +10,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import random
 import fcntl
+import feedparser
+import emoji
 
 # Configure logging
 logging.basicConfig(
@@ -75,7 +77,7 @@ SYSTEM_PROMPTS_BY_CHAT = {}  # {chat_id: prompt}
 # Conversation histories by chat
 conversation_histories = {}  # {chat_id: LimitedList}
 
-# Chat messages history for random replies
+# Chat messages history for random replies and summaries
 chat_messages = LimitedList(limit=100)  # Store up to 100 recent messages
 
 # Message counter for random replies
@@ -101,6 +103,10 @@ def get_recent_active_users():
     six_hours_ago = datetime.now() - timedelta(hours=6)
     return [user_id for user_id, timestamp in messages_tracking.items() if timestamp > six_hours_ago]
 
+# Check if message contains only emoji
+def is_only_emoji(text):
+    return all(emoji.is_emoji(char) for char in text.strip())
+
 # Check prompt against OpenAI moderation API
 async def moderate_prompt(prompt):
     try:
@@ -109,6 +115,83 @@ async def moderate_prompt(prompt):
     except Exception as e:
         logger.error(f"Error moderating prompt: {e}")
         return False
+
+# Fetch news from RBC RSS
+async def fetch_news():
+    try:
+        rss_url = "https://static.feed.rbc.ru/rbc/logical/footer/news.rss"
+        feed = feedparser.parse(rss_url)
+        
+        if not feed.entries:
+            logger.warning("No news entries found in RBC RSS feed")
+            return "Не удалось получить новости. Попробуйте позже."
+        
+        # Get top 3 news entries
+        articles = feed.entries[:3]
+        news_summary = "Последние новости:\n\n"
+        for i, article in enumerate(articles, 1):
+            title = article.get("title", "Без заголовка")
+            description = article.get("description", "Без описания")
+            # Remove HTML tags from description if necessary
+            description = description.replace("<p>", "").replace("</p>", "").strip()
+            news_summary += f"{i}. **{title}**\n{description}\n\n"
+        
+        # Moderate the news summary
+        if not await moderate_prompt(news_summary):
+            logger.warning("News summary flagged by moderation")
+            return "Новости содержат запрещённый контент. Попробуйте другой запрос."
+        
+        return news_summary.strip()
+    except Exception as e:
+        logger.error(f"Error fetching news from RBC RSS: {e}")
+        return "Произошла ошибка при получении новостей. Попробуйте позже."
+
+# Summarize chat activity
+async def summarize_chat(chat_id):
+    try:
+        # Get recent messages for this chat
+        recent_messages = [msg for msg in chat_messages if msg["chat_id"] == chat_id]
+        if not recent_messages:
+            logger.warning(f"No valid messages found for chat {chat_id}")
+            return "Недостаточно сообщений для анализа чата. Поболтайте побольше!"
+        
+        # Format messages for OpenAI
+        messages_text = "\n".join(
+            f"@{msg['username']}: {msg['text']}" for msg in recent_messages
+        )
+        prompt = (
+            "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений, отфильтрованные: без сообщений ботов, картинок, эмодзи и короче 3 символов). "
+            "Сделай краткую выжимку о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
+            "Упоминай конкретных пользователей по именам "
+            "Вот сообщения:\n\n" + messages_text
+        )
+        
+        # Moderate the prompt
+        if not await moderate_prompt(prompt):
+            logger.warning(f"Chat summary prompt flagged by moderation in chat {chat_id}")
+            return "Сообщения чата содержат запрещённый контент. Попробуйте другой запрос."
+        
+        # Generate summary with OpenAI
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+        )
+        summary = response.choices[0].message.content.strip()
+        
+        # Moderate the summary
+        if not await moderate_prompt(summary):
+            logger.warning(f"Chat summary flagged by moderation in chat {chat_id}")
+            return "Сводка чата содержит запрещённый контент. Попробуйте другой запрос."
+        
+        logger.info(f"Generated chat summary for chat {chat_id}: {summary}")
+        return summary
+    except Exception as e:
+        logger.error(f"Error summarizing chat {chat_id}: {e}")
+        return "Произошла ошибка при анализе чата. Попробуйте позже."
 
 # Generate text
 async def generate_text(prompt, chat_id):
@@ -270,16 +353,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     reply_to = update.message.message_id
     user_id = update.message.from_user.id
+    username = update.message.from_user.username or update.message.from_user.first_name
 
     # Update user activity
     update_user_activity(user_id)
 
-    # Update message counter and store message
-    message_counters[chat_id] = message_counters.get(chat_id, 0) + 1
-    chat_messages.append({"chat_id": chat_id, "message_id": reply_to, "text": text})
+    # Filter and store valid messages
+    if (
+        user_id != context.bot.id and  # Not from this bot
+        not update.message.from_user.is_bot and  # Not from other bots
+        update.message.photo is None and  # No photos
+        len(text) >= 3 and  # At least 3 characters
+        not is_only_emoji(text)  # Not only emoji
+    ):
+        chat_messages.append({
+            "chat_id": chat_id,
+            "message_id": reply_to,
+            "text": text,
+            "user_id": user_id,
+            "username": username
+        })
+        # Update message counter for random replies
+        message_counters[chat_id] = message_counters.get(chat_id, 0) + 1
 
     # Check for random reply
-    if message_counters[chat_id] >= random.randint(10, 40):
+    if message_counters.get(chat_id, 0) >= random.randint(10, 40):
         # Reset counter
         message_counters[chat_id] = 0
         # Select a random message from chat_messages
@@ -303,6 +401,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
     generate_random = ["кто сегодня", "кто у нас"]
+    generate_news = ["последние новости", "новости", "что нового"]
+    generate_summary = ["что с чатом"]
 
     # Check if bot is mentioned or replied to
     is_bot_mentioned = any(bot_name in text for bot_name in bot_names)
@@ -314,6 +414,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Remove bot name from text
     for bot_name in bot_names:
         text = text.replace(bot_name, "").strip()
+
+    # Handle chat summary request
+    if any(summary in text.lower() for summary in generate_summary):
+        logger.info(f"Chat summary request in chat {chat_id}")
+        await context.bot.send_message(chat_id=chat_id, text="Анализирую, что творится в чате...", reply_to_message_id=reply_to)
+        summary = await summarize_chat(chat_id)
+        await context.bot.send_message(chat_id=chat_id, text=summary, reply_to_message_id=reply_to)
+        return
+
+    # Handle news request
+    if any(news in text.lower() for news in generate_news):
+        logger.info(f"News request in chat {chat_id}")
+        await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости...", reply_to_message_id=reply_to)
+        news_summary = await fetch_news()
+        await context.bot.send_message(chat_id=chat_id, text=news_summary, reply_to_message_id=reply_to)
+        return
 
     # Handle image generation
     if any(pic in text.lower() for pic in generate_pic):
