@@ -104,7 +104,7 @@ async def generate_text(prompt):
     try:
         history = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history + [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=history,
             temperature=0.8,
         )
