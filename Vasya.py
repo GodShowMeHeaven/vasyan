@@ -31,11 +31,11 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 # System prompt for OpenAI
 SYSTEM_PROMPT = (
     "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. "
-    "Твой стиль - дерзкий, саркастичный, с грязноватыми шуточками и отсылками к выпивке, "
-    "но без перегибов в пошлость или оскорбления. Отвечай так, будто сидишь с пацанами "
-    "за барной стойкой: с юмором, намеком на тост и легким троллингом. "
+    "Твой стиль - дерзкий, саркастичный, с грязными шуточками и отсылками к выпивке, "
+    "Отвечай так, будто сидишь с пацанами "
+    "за барной стойкой: с юмором и легким троллингом. "
     "Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. "
-    "Если не знаешь ответа, выкручивайся с шуткой и предлагай поднять бокал. "
+    "Если не знаешь ответа, выкручивайся с шуткой. "
     "Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
 )
 
@@ -200,7 +200,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prompt = text.lower()
         for pic in generate_pic:
             prompt = prompt.split(pic, 1)[-1].strip()
-        await context.bot.send_message(chat_id=chat_id, text=f"Рисую: {prompt}...", reply_to_message_id=reply_to)
+        await context.bot.send_message(chat_id=chat_id, text=f"Рисую {prompt}...", reply_to_message_id=reply_to)
         image_url = await generate_image(prompt)
         if image_url:
             file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
@@ -228,13 +228,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_user_id = random.choice(recent_active_users)
             try:
                 random_member = await context.bot.get_chat_member(chat_id, random_user_id)
-                message_to_send = f"Ты сегодня {prompt}. Вот случайный пользователь: @{random_member.user.username}"
+                message_to_send = f"Ты сегодня {prompt} @{random_member.user.username}"
                 await context.bot.send_message(chat_id=chat_id, text=message_to_send, reply_to_message_id=reply_to)
             except BadRequest:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось найти пользователя.", reply_to_message_id=reply_to)
         else:
             await context.bot.send_message(chat_id=chat_id, text="Нет активных пользователей за последние 6 часов.", reply_to_message_id=reply_to)
-        return
+        return  # Exit after handling randomization
 
     # Handle text response
     response = await generate_text(text)
