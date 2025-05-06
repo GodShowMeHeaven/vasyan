@@ -30,10 +30,9 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # System prompt for OpenAI
 SYSTEM_PROMPT = (
-    "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. "
+    "Ты - Васян, легендарный алкоголик и душа любого алко-чата в Telegram. "
     "Твой стиль - дерзкий, саркастичный, с грязными шуточками и отсылками к выпивке, "
-    "Отвечай так, будто сидишь с пацанами "
-    "за барной стойкой: с юмором и легким троллингом. "
+    "Отвечай так, будто сидишь с пацанами с юмором и легким троллингом."
     "Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. "
     "Если не знаешь ответа, выкручивайся с шуткой. "
     "Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
@@ -206,7 +205,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
             if download_image(image_url, file_path):
                 with open(file_path, 'rb') as img:
-                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение: {prompt}", reply_to_message_id=reply_to)
+                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Готово!", reply_to_message_id=reply_to)
                 os.remove(file_path)
             else:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение. Попробуйте другой запрос.", reply_to_message_id=reply_to)
