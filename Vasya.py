@@ -12,6 +12,8 @@ import random
 import fcntl
 import feedparser
 import emoji
+import aiohttp
+from aiohttp import ClientTimeout
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +44,10 @@ logger.info("Environment variables loaded successfully")
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# News cache
+NEWS_CACHE = {"summary": None, "timestamp": None}
+CACHE_DURATION = timedelta(minutes=30)
 
 # Predefined system prompts
 SYSTEM_PROMPTS = {
@@ -121,45 +127,80 @@ def is_only_emoji(text):
     return all(emoji.is_emoji(char) for char in text.strip())
 
 # Check prompt against OpenAI moderation API
-async def moderate_prompt(prompt):
+async def moderate_prompt(prompt, skip_moderation=False):
+    if skip_moderation:
+        logger.info("Skipping moderation for prompt")
+        return True
     try:
+        logger.info("Sending moderation request to OpenAI")
         response = client.moderations.create(input=prompt)
         flagged = response.results[0].flagged
         logger.info(f"Moderation result for prompt: flagged={flagged}")
         return not flagged
     except Exception as e:
-        logger.error(f"Error moderating prompt: {e}")
+        logger.error(f"Error moderating prompt: {e}", exc_info=True)
         return False
 
-# Fetch news from RBC RSS
+# Fetch news from RSS
 async def fetch_news():
-    try:
-        rss_url = "https://static.feed.rbc.ru/rbc/logical/footer/news.rss"
-        feed = feedparser.parse(rss_url)
+    global NEWS_CACHE
+    current_time = datetime.now()
+
+    # Check cache
+    if NEWS_CACHE["summary"] and NEWS_CACHE["timestamp"]:
+        if current_time - NEWS_CACHE["timestamp"] < CACHE_DURATION:
+            logger.info("Returning cached news")
+            return NEWS_CACHE["summary"]
+
+    rss_urls = [
+        "https://static.feed.rbc.ru/rbc/logical/footer/news.rss",
+        "https://lenta.ru/rss/news"
+    ]
+    
+    async with aiohttp.ClientSession(timeout=ClientTimeout(total=15)) as session:
+        for rss_url in rss_urls:
+            try:
+                logger.info(f"Fetching news from {rss_url}")
+                async with session.get(rss_url) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed to fetch RSS from {rss_url}: HTTP {response.status}")
+                        continue
+                    content = await response.text()
+                
+                logger.info(f"Parsing RSS feed from {rss_url}")
+                feed = feedparser.parse(content)
+                
+                if not feed.entries:
+                    logger.warning(f"No news entries found in {rss_url}")
+                    continue
+                
+                # Get top 3 news entries
+                articles = feed.entries[:3]
+                news_summary = f"Последние новости ({rss_url.split('/')[2]}):\n\n"
+                for i, article in enumerate(articles, 1):
+                    title = article.get("title", "Без заголовка")
+                    description = article.get("description", "Без описания")
+                    description = description.replace("<p>", "").replace("</p>", "").strip()
+                    news_summary += f"{i}. **{title}**\n{description}\n\n"
+                
+                # Moderate the news summary
+                logger.info("Moderating news summary")
+                if not await moderate_prompt(news_summary, skip_moderation=False):
+                    logger.warning("News summary flagged by moderation")
+                    return "Новости содержат запрещённый контент. Попробуйте другой запрос."
+                
+                # Update cache
+                NEWS_CACHE["summary"] = news_summary.strip()
+                NEWS_CACHE["timestamp"] = current_time
+                logger.info(f"Successfully fetched news: {news_summary[:100]}...")
+                return news_summary.strip()
+            
+            except Exception as e:
+                logger.error(f"Error fetching news from {rss_url}: {e}", exc_info=True)
+                continue
         
-        if not feed.entries:
-            logger.warning("No news entries found in RBC RSS feed")
-            return "Не удалось получить новости с РБК. Попробуйте позже."
-        
-        # Get top 3 news entries
-        articles = feed.entries[:3]
-        news_summary = "Последние новости (РБК):\n\n"
-        for i, article in enumerate(articles, 1):
-            title = article.get("title", "Без заголовка")
-            description = article.get("description", "Без описания")
-            description = description.replace("<p>", "").replace("</p>", "").strip()
-            news_summary += f"{i}. **{title}**\n{description}\n\n"
-        
-        # Moderate the news summary
-        if not await moderate_prompt(news_summary):
-            logger.warning("News summary flagged by moderation")
-            return "Новости содержат запрещённый контент. Попробуйте другой запрос."
-        
-        logger.info(f"Successfully fetched news: {news_summary[:100]}...")
-        return news_summary.strip()
-    except Exception as e:
-        logger.error(f"Error fetching news from RBC RSS: {e}")
-        return "Произошла ошибка при получении новостей с РБК. Попробуйте позже."
+        logger.error("Failed to fetch news from all RSS sources")
+        return "Не удалось получить новости. Попробуйте позже."
 
 # Summarize chat activity
 async def summarize_chat(chat_id):
@@ -200,7 +241,7 @@ async def summarize_chat(chat_id):
         logger.info(f"Generated chat summary for chat {chat_id}: {summary}")
         return summary
     except Exception as e:
-        logger.error(f"Error summarizing chat {chat_id}: {e}")
+        logger.error(f"Error summarizing chat {chat_id}: {e}", exc_info=True)
         return "Произошла ошибка при анализе чата. Попробуйте позже."
 
 # Generate text
@@ -218,7 +259,7 @@ async def generate_text(prompt, chat_id):
         conversation_history.append({"role": "assistant", "content": message.content})
         return message.content.strip()
     except Exception as e:
-        logger.error(f"Error generating text in chat {chat_id}: {e}")
+        logger.error(f"Error generating text in chat {chat_id}: {e}", exc_info=True)
         return "Произошла ошибка при генерации текста. Попробуйте позже."
 
 # Generate image
@@ -240,7 +281,7 @@ async def generate_image(prompt):
         )
         return response.data[0].url
     except Exception as e:
-        logger.error(f"Error generating image with prompt '{prompt}': {e}")
+        logger.error(f"Error generating image with prompt '{prompt}': {e}", exc_info=True)
         return None
 
 # Download image
@@ -253,7 +294,7 @@ def download_image(image_url, file_path):
             return True
         return False
     except Exception as e:
-        logger.error(f"Error downloading image: {e}")
+        logger.error(f"Error downloading image: {e}", exc_info=True)
         return False
 
 # Check for single instance
@@ -265,17 +306,17 @@ def acquire_lock():
         logger.info(f"Lock acquired successfully for process {os.getpid()}")
         return fd
     except IOError as e:
-        logger.error(f"Failed to acquire lock, another instance is running (PID: {os.getpid()}): {e}")
+        logger.error(f"Failed to acquire lock, another instance is running (PID: {os.getpid()}): {e}", exc_info=True)
         raise RuntimeError("Another instance of the bot is already running")
 
 # Error handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update is None:
-        logger.error(f"Error with no update object: {context.error}")
+        logger.error(f"Error with no update object: {context.error}", exc_info=True)
         return
     
     chat_id = update.effective_chat.id if update.effective_chat else "unknown"
-    logger.error(f"Update {update} in chat {chat_id} caused error: {context.error}")
+    logger.error(f"Update {update} in chat {chat_id} caused error: {context.error}", exc_info=True)
     
     if isinstance(context.error, Conflict):
         logger.error(f"Conflict error in chat {chat_id}: Terminated by another getUpdates request")
@@ -321,7 +362,7 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     except Exception as e:
-        logger.error(f"Error checking admin status in chat {chat_id}: {e}")
+        logger.error(f"Error checking admin status in chat {chat_id}: {e}", exc_info=True)
         await context.bot.send_message(
             chat_id=chat_id,
             text="Не удалось проверить права администратора. Попробуйте позже.",
@@ -434,7 +475,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if any(news in text.lower() for news in generate_news):
         logger.info(f"News request in chat {chat_id}: {text}")
-        await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости с РБК...", reply_to_message_id=reply_to)
+        await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости...", reply_to_message_id=reply_to)
         news_summary = await fetch_news()
         await context.bot.send_message(chat_id=chat_id, text=news_summary, reply_to_message_id=reply_to)
         return
@@ -493,12 +534,12 @@ def main():
             response = requests.get("https://api.telegram.org", timeout=5)
             logger.info(f"Telegram API check: {response.status_code}")
         except Exception as e:
-            logger.error(f"Failed to reach Telegram API: {e}")
+            logger.error(f"Failed to reach Telegram API: {e}", exc_info=True)
         try:
             response = requests.get("https://api.openai.com", timeout=5)
             logger.info(f"OpenAI API check: {response.status_code}")
         except Exception as e:
-            logger.error(f"Failed to reach OpenAI API: {e}")
+            logger.error(f"Failed to reach OpenAI API: {e}", exc_info=True)
         logger.info("Building Telegram application")
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         logger.info("Adding handlers")
@@ -508,10 +549,10 @@ def main():
         logger.info("Starting bot polling")
         app.run_polling()
     except RuntimeError as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Failed to start bot: {e}", exc_info=True)
         exit(1)
     except NetworkError as e:
-        logger.error(f"Network error during initialization: {e}")
+        logger.error(f"Network error during initialization: {e}", exc_info=True)
         exit(1)
     except Exception as e:
         logger.error(f"Unexpected error in main: {e}", exc_info=True)
