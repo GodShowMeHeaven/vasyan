@@ -240,7 +240,7 @@ async def fetch_news():
                 
                 # Get top 3 news entries
                 articles = feed.entries[:3]
-                news_summary = f"Последние новости ({rss_url.split('/')[2]}):\n\n"
+                news_summary = f"Последние новости:"
                 for i, article in enumerate(articles, 1):
                     title = article.get("title", "Без заголовка")
                     description = article.get("description", None) or article.get("summary", None)
@@ -597,7 +597,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_user_id = random.choice(recent_active_users)
             try:
                 random_member = await context.bot.get_chat_member(chat_id, random_user_id)
-                message_to_send = f"Ты сегодня {prompt} @{random_member.user.username}"
+                message_to_send = f"@{random_member.user.username}, ты сегодня {prompt} "
                 await context.bot.send_message(chat_id=chat_id, text=message_to_send, reply_to_message_id=reply_to)
             except BadRequest:
                 await context.bot.send_message(chat_id=chat_id, text="Не удалось найти пользователя.", reply_to_message_id=reply_to)
