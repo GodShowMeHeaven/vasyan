@@ -71,10 +71,18 @@ def get_recent_active_users():
     six_hours_ago = datetime.now() - timedelta(hours=6)
     return [user_id for user_id, timestamp in messages_tracking.items() if timestamp > six_hours_ago]
 
+# Check prompt against OpenAI moderation API
+async def moderate_prompt(prompt):
+    try:
+        response = client.moderations.create(input=prompt)
+        return not response.results[0].flagged
+    except Exception as e:
+        logger.error(f"Error moderating prompt: {e}")
+        return False
+
 # Generate text
 async def generate_text(prompt):
     try:
-        # Include system prompt as the first message
         history = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history + [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
             model="gpt-4",
@@ -91,10 +99,14 @@ async def generate_text(prompt):
 
 # Generate image
 async def generate_image(prompt):
-    if not prompt or len(prompt.strip()) < 3:
-        logger.warning("Invalid or empty prompt for image generation")
+    if not prompt or len(prompt.strip()) < 5:
+        logger.warning(f"Invalid or too short prompt for image generation: '{prompt}'")
+        return None
+    if not await moderate_prompt(prompt):
+        logger.warning(f"Prompt flagged by moderation: '{prompt}'")
         return None
     try:
+        logger.info(f"Generating image with prompt: '{prompt}'")
         response = client.images.generate(
             model="dall-e-3",
             prompt=prompt,
@@ -104,7 +116,7 @@ async def generate_image(prompt):
         )
         return response.data[0].url
     except Exception as e:
-        logger.error(f"Error generating image: {e}")
+        logger.error(f"Error generating image with prompt '{prompt}': {e}")
         return None
 
 # Download image
@@ -197,9 +209,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение: {prompt}", reply_to_message_id=reply_to)
                 os.remove(file_path)
             else:
-                await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение.", reply_to_message_id=reply_to)
+                await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение. Попробуйте другой запрос.", reply_to_message_id=reply_to)
         else:
-            await context.bot.send_message(chat_id=chat_id, text="Не удалось сгенерировать изображение. Проверьте запрос.", reply_to_message_id=reply_to)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Не удалось сгенерировать изображение. Возможно, запрос содержит запрещённые элементы или слишком короткий. Попробуйте что-то другое!",
+                reply_to_message_id=reply_to
+            )
         return
 
     # Handle user randomization
