@@ -154,7 +154,9 @@ async def fetch_news():
 
     rss_urls = [
         "https://static.feed.rbc.ru/rbc/logical/footer/news.rss",
-        "https://lenta.ru/rss/news"
+        "https://lenta.ru/rss/news",
+        "https://ria.ru/export/rss2/archive/index.xml",
+        "https://tass.ru/rss/v2.xml"
     ]
     
     async with aiohttp.ClientSession(timeout=ClientTimeout(total=15)) as session:
@@ -179,9 +181,11 @@ async def fetch_news():
                 news_summary = f"Последние новости ({rss_url.split('/')[2]}):\n\n"
                 for i, article in enumerate(articles, 1):
                     title = article.get("title", "Без заголовка")
-                    description = article.get("description", "Без описания")
+                    description = article.get("description", "Без описания") or article.get("summary", title)
                     description = description.replace("<p>", "").replace("</p>", "").strip()
-                    news_summary += f"{i}. **{title}**\n{description}\n\n"
+                    published = article.get("published", "Дата неизвестна")
+                    link = article.get("link", "Ссылка отсутствует")
+                    news_summary += f"{i}. **{title}** ({published})\n{description} [Читать: {link}]\n\n"
                 
                 # Moderate the news summary
                 logger.info("Moderating news summary")
