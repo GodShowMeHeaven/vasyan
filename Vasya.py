@@ -302,7 +302,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
-    generate_random = ["выбери", "кто сегодня", "кто у нас", "выбираем"]
+    generate_random = ["кто сегодня", "кто у нас"]
 
     # Check if bot is mentioned or replied to
     is_bot_mentioned = any(bot_name in text for bot_name in bot_names)
