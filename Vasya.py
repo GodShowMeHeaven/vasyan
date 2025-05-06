@@ -1,25 +1,34 @@
 import os
 import requests
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, MessageHandler, CallbackContext, filters
-from telegram.error import BadRequest
+from telegram.ext import Application, MessageHandler, CallbackContext, filters, ErrorHandler
+from telegram.error import Conflict, BadRequest
 from openai import OpenAI
 from dotenv import load_dotenv
 import random
+import fcntl
 
-# Загружаем переменные из .env
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 load_dotenv()
 
-# Токены из переменных окружения
+# Tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Ограниченная история сообщений
+# Limited conversation history
 MAX_TOKENS = 16000
 
 class LimitedList(list):
@@ -41,7 +50,7 @@ class LimitedList(list):
 
 conversation_history = LimitedList(limit=MAX_TOKENS)
 
-# Отслеживание активности пользователей
+# User activity tracking
 messages_tracking = {}
 
 def update_user_activity(user_id):
@@ -51,41 +60,87 @@ def get_recent_active_users():
     six_hours_ago = datetime.now() - timedelta(hours=6)
     return [user_id for user_id, timestamp in messages_tracking.items() if timestamp > six_hours_ago]
 
-# Генерация текста
+# Generate text
 async def generate_text(prompt):
-    history = conversation_history + [{"role": "user", "content": prompt}]
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=history,
-        temperature=0.8,
-    )
-    message = response.choices[0].message
-    conversation_history.append({"role": "user", "content": prompt})
-    conversation_history.append({"role": "assistant", "content": message.content})
-    return message.content.strip()
+    try:
+        history = conversation_history + [{"role": "user", "content": prompt}]
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=history,
+            temperature=0.8,
+        )
+        message = response.choices[0].message
+        conversation_history.append({"role": "user", "content": prompt})
+        conversation_history.append({"role": "assistant", "content": message.content})
+        return message.content.strip()
+    except Exception as e:
+        logger.error(f"Error generating text: {e}")
+        return "Произошла ошибка при генерации текста. Попробуйте позже."
 
-# Генерация изображения
+# Generate image
 async def generate_image(prompt):
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size="1024x1024",
-        quality="standard",
-        n=1,
-    )
-    image_url = response.data[0].url
-    return image_url
+    if not prompt or len(prompt.strip()) < 3:
+        logger.warning("Invalid or empty prompt for image generation")
+        return None
+    try:
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        return response.data[0].url
+    except Exception as e:
+        logger.error(f"Error generating image: {e}")
+        return None
 
-# Загрузка изображения
+# Download image
 def download_image(image_url, file_path):
-    response = requests.get(image_url)
-    if response.status_code == 200:
-        with open(file_path, "wb") as f:
-            f.write(response.content)
-        return True
-    return False
+    try:
+        response = requests.get(image_url, timeout=10)
+        if response.status_code == 200:
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error downloading image: {e}")
+        return False
 
-# Обработка сообщений
+# Check for single instance
+def acquire_lock():
+    lock_file = "/tmp/telegram_bot.lock"
+    try:
+        fd = open(lock_file, 'w')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except IOError:
+        logger.error("Another instance of the bot is already running")
+        raise RuntimeError("Another instance of the bot is already running")
+
+# Error handler
+async def error_handler(update: Update, context: CallbackContext):
+    logger.error(f"Update {update} caused error: {context.error}")
+    if isinstance(context.error, Conflict):
+        logger.error("Conflict error: Terminated by another getUpdates request")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id if update else None,
+            text="Бот остановлен из-за конфликта. Убедитесь, что запущена только одна копия бота."
+        )
+    elif isinstance(context.error, BadRequest):
+        logger.error(f"BadRequest error: {context.error}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id if update else None,
+            text="Ошибка запроса. Попробуйте снова."
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id if update else None,
+            text="Произошла неизвестная ошибка. Попробуйте позже."
+        )
+
+# Message handler
 async def handle_message(update: Update, context: CallbackContext):
     if not update.message or not update.message.text:
         return
@@ -95,41 +150,44 @@ async def handle_message(update: Update, context: CallbackContext):
     reply_to = update.message.message_id
     user_id = update.message.from_user.id
 
-    # Обновляем активность пользователя
+    # Update user activity
     update_user_activity(user_id)
 
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
     generate_random = ["выбери", "кто сегодня", "кто у нас", "выбираем"]
 
-    # Проверяем, есть ли обращение к боту
+    # Check if bot is mentioned or replied to
     is_bot_mentioned = any(bot_name in text for bot_name in bot_names)
     is_reply_to_bot = update.message.reply_to_message and update.message.reply_to_message.from_user.id == context.bot.id
 
     if not (is_bot_mentioned or is_reply_to_bot):
         return
 
-    # Удаляем имя бота из текста, если оно есть
+    # Remove bot name from text
     for bot_name in bot_names:
         text = text.replace(bot_name, "").strip()
 
-    # Обработка генерации изображения
+    # Handle image generation
     if any(pic in text.lower() for pic in generate_pic):
         prompt = text.lower()
         for pic in generate_pic:
             prompt = prompt.split(pic, 1)[-1].strip()
         await context.bot.send_message(chat_id=chat_id, text=f"Рисую: {prompt}...", reply_to_message_id=reply_to)
         image_url = await generate_image(prompt)
-        file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
-        if download_image(image_url, file_path):
-            with open(file_path, 'rb') as img:
-                await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение: {prompt}", reply_to_message_id=reply_to)
-            os.remove(file_path)
+        if image_url:
+            file_path = f"/tmp/image-{datetime.now().timestamp()}.png"
+            if download_image(image_url, file_path):
+                with open(file_path, 'rb') as img:
+                    await context.bot.send_photo(chat_id=chat_id, photo=img, caption=f"Вот изображение: {prompt}", reply_to_message_id=reply_to)
+                os.remove(file_path)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение.", reply_to_message_id=reply_to)
         else:
-            await context.bot.send_message(chat_id=chat_id, text="Не удалось загрузить изображение.")
+            await context.bot.send_message(chat_id=chat_id, text="Не удалось сгенерировать изображение. Проверьте запрос.", reply_to_message_id=reply_to)
         return
 
-    # Обработка рандомизации пользователей
+    # Handle user randomization
     if any(rand in text.lower() for rand in generate_random):
         prompt = text.lower()
         for rand in generate_random:
@@ -147,15 +205,27 @@ async def handle_message(update: Update, context: CallbackContext):
             await context.bot.send_message(chat_id=chat_id, text="Нет активных пользователей за последние 6 часов.", reply_to_message_id=reply_to)
         return
 
-    # Обработка текстового ответа
+    # Handle text response
     response = await generate_text(text)
     await context.bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=reply_to)
 
-# Запуск приложения
+# Run application
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    app.run_polling()
+    try:
+        # Acquire lock to prevent multiple instances
+        lock_fd = acquire_lock()
+        app = Application.builder().token(TELEGRAM_TOKEN).build()
+        app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+        app.add_error_handler(error_handler)
+        logger.info("Starting bot polling")
+        app.run_polling()
+    except RuntimeError as e:
+        logger.error(f"Failed to start bot: {e}")
+        exit(1)
+    finally:
+        if 'lock_fd' in locals():
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
 if __name__ == "__main__":
     main()
