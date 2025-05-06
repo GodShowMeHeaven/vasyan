@@ -185,10 +185,12 @@ async def fetch_article_text(url):
 async def generate_summary(text):
     try:
         prompt = (
-            "Сделай краткую выжимку (2-3 предложения) из следующей новости. "
-            "Сосредоточься на главных событиях или фактах, избегая лишних деталей. "
-            "Вот текст новости:\n\n" + text
-        )
+    "Сделай краткую выжимку из следующей новости. "
+    "Сосредоточься на главных событиях или фактах, не сильно детализируя. "
+    "Результат должен быть отформатирован с использованием разметки Telegram: "
+    "Не используй символы **, __, ~~ и другие для форматирования текста. "
+    "Вот текст новости:\n\n" + text
+                )
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
@@ -240,7 +242,7 @@ async def fetch_news():
                 
                 # Get top 3 news entries
                 articles = feed.entries[:3]
-                news_summary = f"Последние новости:"
+                news_summary = f"Последние новости:\n"
                 for i, article in enumerate(articles, 1):
                     title = article.get("title", "Без заголовка")
                     description = article.get("description", None) or article.get("summary", None)
