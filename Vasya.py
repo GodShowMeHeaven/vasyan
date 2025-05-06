@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, ContextTypes, filters
-from telegram.error import Conflict, BadRequest
+from telegram.error import Conflict, BadRequest, NetworkError
 from openai import OpenAI
 from dotenv import load_dotenv
 import random
@@ -24,8 +24,7 @@ logger = logging.getLogger(__name__)
 logger.info("Loading environment variables")
 load_dotenv()
 if not os.path.exists('.env'):
-    logger.error("Environment file (.env) not found")
-    exit(1)
+    logger.warning("Environment file (.env) not found, relying on Railway variables")
 
 # Tokens from environment variables
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -33,10 +32,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Validate tokens
 if not TELEGRAM_TOKEN:
-    logger.error("TELEGRAM_TOKEN is not set in .env")
+    logger.error("TELEGRAM_TOKEN is not set")
     exit(1)
 if not OPENAI_API_KEY:
-    logger.error("OPENAI_API_KEY is not set in .env")
+    logger.error("OPENAI_API_KEY is not set")
     exit(1)
 
 logger.info("Environment variables loaded successfully")
@@ -292,6 +291,13 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=chat_id,
                 text="Ошибка запроса. Попробуйте снова."
             )
+    elif isinstance(context.error, NetworkError):
+        logger.error(f"Network error in chat {chat_id}: {context.error}")
+        if update.effective_chat:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Ошибка сети. Проверьте подключение и попробуйте снова."
+            )
     else:
         if update.effective_chat:
             await context.bot.send_message(
@@ -482,6 +488,17 @@ def main():
     try:
         logger.info("Acquiring lock")
         lock_fd = acquire_lock()
+        logger.info("Checking network connectivity")
+        try:
+            response = requests.get("https://api.telegram.org", timeout=5)
+            logger.info(f"Telegram API check: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to reach Telegram API: {e}")
+        try:
+            response = requests.get("https://api.openai.com", timeout=5)
+            logger.info(f"OpenAI API check: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to reach OpenAI API: {e}")
         logger.info("Building Telegram application")
         app = Application.builder().token(TELEGRAM_TOKEN).build()
         logger.info("Adding handlers")
@@ -493,8 +510,9 @@ def main():
     except RuntimeError as e:
         logger.error(f"Failed to start bot: {e}")
         exit(1)
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+    except NetworkError as e:
+        logger.error(f"Network error during initialization: {e}")
+        exit(1)
     except Exception as e:
         logger.error(f"Unexpected error in main: {e}", exc_info=True)
         exit(1)
