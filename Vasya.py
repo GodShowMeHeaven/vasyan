@@ -124,11 +124,11 @@ async def fetch_news():
         
         if not feed.entries:
             logger.warning("No news entries found in RBC RSS feed")
-            return "Не удалось получить новости. Попробуйте позже."
+            return "Не удалось получить новости с РБК. Попробуйте позже."
         
         # Get top 3 news entries
         articles = feed.entries[:3]
-        news_summary = "Последние новости:\n\n"
+        news_summary = "Последние новости (РБК):\n\n"
         for i, article in enumerate(articles, 1):
             title = article.get("title", "Без заголовка")
             description = article.get("description", "Без описания")
@@ -144,7 +144,7 @@ async def fetch_news():
         return news_summary.strip()
     except Exception as e:
         logger.error(f"Error fetching news from RBC RSS: {e}")
-        return "Произошла ошибка при получении новостей. Попробуйте позже."
+        return "Произошла ошибка при получении новостей с РБК. Попробуйте позже."
 
 # Summarize chat activity
 async def summarize_chat(chat_id):
@@ -161,8 +161,8 @@ async def summarize_chat(chat_id):
         )
         prompt = (
             "Ты - аналитик чата. Ниже приведены последние сообщения из Telegram-чата (до 100 сообщений, отфильтрованные: без сообщений ботов, картинок, эмодзи и короче 3 символов). "
-            "Сделай краткую выжимку о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
-            "Упоминай конкретных пользователей по именам "
+            "Сделай краткую выжимку (3-5 предложений) о том, о чём говорили в чате, какие темы обсуждались, какой был настрой (например, весёлый, серьёзный). "
+            "Не упоминай конкретных пользователей по именам, только общие темы и настроение. "
             "Вот сообщения:\n\n" + messages_text
         )
         
@@ -252,31 +252,37 @@ def acquire_lock():
     try:
         fd = open(lock_file, 'w')
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        logger.info(f"Lock acquired successfully for process {os.getpid()}")
         return fd
-    except IOError:
-        logger.error("Another instance of the bot is already running")
+    except IOError as e:
+        logger.error(f"Failed to acquire lock, another instance is running (PID: {os.getpid()}): {e}")
         raise RuntimeError("Another instance of the bot is already running")
 
 # Error handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update is None:
+        logger.error(f"Error with no update object: {context.error}")
+        return
+    
     chat_id = update.effective_chat.id if update.effective_chat else "unknown"
     logger.error(f"Update {update} in chat {chat_id} caused error: {context.error}")
+    
     if isinstance(context.error, Conflict):
         logger.error(f"Conflict error in chat {chat_id}: Terminated by another getUpdates request")
-        if update and update.effective_chat:
+        if update.effective_chat:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="Бот остановлен из-за конфликта. Убедитесь, что запущена только одна копия бота."
             )
     elif isinstance(context.error, BadRequest):
         logger.error(f"BadRequest error in chat {chat_id}: {context.error}")
-        if update and update.effective_chat:
+        if update.effective_chat:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="Ошибка запроса. Попробуйте снова."
             )
     else:
-        if update and update.effective_chat:
+        if update.effective_chat:
             await context.bot.send_message(
                 chat_id=chat_id,
                 text="Произошла неизвестная ошибка. Попробуйте позже."
@@ -426,7 +432,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Handle news request
     if any(news in text.lower() for news in generate_news):
         logger.info(f"News request in chat {chat_id}")
-        await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости...", reply_to_message_id=reply_to)
+        await context.bot.send_message(chat_id=chat_id, text="Собираю последние новости с РБК...", reply_to_message_id=reply_to)
         news_summary = await fetch_news()
         await context.bot.send_message(chat_id=chat_id, text=news_summary, reply_to_message_id=reply_to)
         return
@@ -478,6 +484,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Run application
 def main():
+    lock_fd = None
     try:
         # Acquire lock to prevent multiple instances
         lock_fd = acquire_lock()
@@ -490,10 +497,16 @@ def main():
     except RuntimeError as e:
         logger.error(f"Failed to start bot: {e}")
         exit(1)
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        exit(1)
     finally:
-        if 'lock_fd' in locals():
+        if lock_fd is not None:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
+            logger.info("Lock released")
 
 if __name__ == "__main__":
     main()
