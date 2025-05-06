@@ -267,7 +267,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_messages.append({"chat_id": chat_id, "message_id": reply_to, "text": text})
 
     # Check for random reply
-    if message_counters[chat_id] >= random.randint(20, 60):
+    if message_counters[chat_id] >= random.randint(10, 40):
         # Reset counter
         message_counters[chat_id] = 0
         # Select a random message from chat_messages
