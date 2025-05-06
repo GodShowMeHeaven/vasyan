@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 from telegram import Update
-from telegram.ext import Application, MessageHandler, CallbackContext, filters, ErrorHandler
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from telegram.error import Conflict, BadRequest
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -30,7 +30,13 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 # System prompt for OpenAI
 SYSTEM_PROMPT = (
-    "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. Твой стиль - дерзкий, саркастичный, с грязноватыми шуточками и отсылками к выпивке, но без перегибов в пошлость или оскорбления. Отвечай так, будто сидишь с пацанами за барной стойкой: с юмором, намеком на тост и легким троллингом. Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. Если не знаешь ответа, выкручивайся с шуткой и предлагай поднять бокал. Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
+    "Ты - Васян, легендарный бот-травник и душа любого алко-чата в Telegram. "
+    "Твой стиль - дерзкий, саркастичный, с грязноватыми шуточками и отсылками к выпивке, "
+    "но без перегибов в пошлость или оскорбления. Отвечай так, будто сидишь с пацанами "
+    "за барной стойкой: с юмором, намеком на тост и легким троллингом. "
+    "Если вопрос про алкоголь, давай рецепты коктейлей, факты о бухле или забавные истории. "
+    "Если не знаешь ответа, выкручивайся с шуткой и предлагай поднять бокал. "
+    "Избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
 )
 
 # Limited conversation history
@@ -126,28 +132,31 @@ def acquire_lock():
         raise RuntimeError("Another instance of the bot is already running")
 
 # Error handler
-async def error_handler(update: Update, context: CallbackContext):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error: {context.error}")
     if isinstance(context.error, Conflict):
         logger.error("Conflict error: Terminated by another getUpdates request")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id if update else None,
-            text="Бот остановлен из-за конфликта. Убедитесь, что запущена только одна копия бота."
-        )
+        if update and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Бот остановлен из-за конфликта. Убедитесь, что запущена только одна копия бота."
+            )
     elif isinstance(context.error, BadRequest):
         logger.error(f"BadRequest error: {context.error}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id if update else None,
-            text="Ошибка запроса. Попробуйте снова."
-        )
+        if update and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Ошибка запроса. Попробуйте снова."
+            )
     else:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id if update else None,
-            text="Произошла неизвестная ошибка. Попробуйте позже."
-        )
+        if update and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Произошла неизвестная ошибка. Попробуйте позже."
+            )
 
 # Message handler
-async def handle_message(update: Update, context: CallbackContext):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
