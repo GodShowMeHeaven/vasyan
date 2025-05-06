@@ -49,9 +49,6 @@ SYSTEM_PROMPTS = {
     )
 }
 
-# Current system prompt (default to alco-chat style)
-SYSTEM_PROMPT = SYSTEM_PROMPTS[1]
-
 # Limited conversation history
 MAX_TOKENS = 16000
 
@@ -72,7 +69,11 @@ class LimitedList(list):
         while len(self) > self.limit:
             self.pop(0)
 
-conversation_history = LimitedList(limit=MAX_TOKENS)
+# System prompts by chat
+SYSTEM_PROMPTS_BY_CHAT = {}  # {chat_id: prompt}
+
+# Conversation histories by chat
+conversation_histories = {}  # {chat_id: LimitedList}
 
 # Chat messages history for random replies
 chat_messages = LimitedList(limit=100)  # Store up to 100 recent messages
@@ -82,6 +83,16 @@ message_counters = {}  # {chat_id: count}
 
 # User activity tracking
 messages_tracking = {}
+
+def get_conversation_history(chat_id):
+    if chat_id not in conversation_histories:
+        conversation_histories[chat_id] = LimitedList(limit=MAX_TOKENS)
+    return conversation_histories[chat_id]
+
+def get_system_prompt(chat_id):
+    if chat_id not in SYSTEM_PROMPTS_BY_CHAT:
+        SYSTEM_PROMPTS_BY_CHAT[chat_id] = SYSTEM_PROMPTS[1]  # Default to alco-chat
+    return SYSTEM_PROMPTS_BY_CHAT[chat_id]
 
 def update_user_activity(user_id):
     messages_tracking[user_id] = datetime.now()
@@ -100,20 +111,21 @@ async def moderate_prompt(prompt):
         return False
 
 # Generate text
-async def generate_text(prompt):
+async def generate_text(prompt, chat_id):
     try:
-        history = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history + [{"role": "user", "content": prompt}]
+        history = [{"role": "system", "content": get_system_prompt(chat_id)}] + get_conversation_history(chat_id) + [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=history,
             temperature=0.8,
         )
         message = response.choices[0].message
+        conversation_history = get_conversation_history(chat_id)
         conversation_history.append({"role": "user", "content": prompt})
         conversation_history.append({"role": "assistant", "content": message.content})
         return message.content.strip()
     except Exception as e:
-        logger.error(f"Error generating text: {e}")
+        logger.error(f"Error generating text in chat {chat_id}: {e}")
         return "Произошла ошибка при генерации текста. Попробуйте позже."
 
 # Generate image
@@ -164,25 +176,26 @@ def acquire_lock():
 
 # Error handler
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error: {context.error}")
+    chat_id = update.effective_chat.id if update.effective_chat else "unknown"
+    logger.error(f"Update {update} in chat {chat_id} caused error: {context.error}")
     if isinstance(context.error, Conflict):
-        logger.error("Conflict error: Terminated by another getUpdates request")
+        logger.error(f"Conflict error in chat {chat_id}: Terminated by another getUpdates request")
         if update and update.effective_chat:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="Бот остановлен из-за конфликта. Убедитесь, что запущена только одна копия бота."
             )
     elif isinstance(context.error, BadRequest):
-        logger.error(f"BadRequest error: {context.error}")
+        logger.error(f"BadRequest error in chat {chat_id}: {context.error}")
         if update and update.effective_chat:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="Ошибка запроса. Попробуйте снова."
             )
     else:
         if update and update.effective_chat:
             await context.bot.send_message(
-                chat_id=update.effective_chat.id,
+                chat_id=chat_id,
                 text="Произошла неизвестная ошибка. Попробуйте позже."
             )
 
@@ -203,7 +216,7 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     except Exception as e:
-        logger.error(f"Error checking admin status: {e}")
+        logger.error(f"Error checking admin status in chat {chat_id}: {e}")
         await context.bot.send_message(
             chat_id=chat_id,
             text="Не удалось проверить права администратора. Попробуйте позже.",
@@ -239,10 +252,9 @@ async def set_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Update system prompt
-    global SYSTEM_PROMPT
-    SYSTEM_PROMPT = SYSTEM_PROMPTS[prompt_number]
-    logger.info(f"System prompt changed to prompt {prompt_number} by admin {user_id}")
+    # Update system prompt for this chat
+    SYSTEM_PROMPTS_BY_CHAT[chat_id] = SYSTEM_PROMPTS[prompt_number]
+    logger.info(f"System prompt changed to prompt {prompt_number} in chat {chat_id} by admin {user_id}")
     await context.bot.send_message(
         chat_id=chat_id,
         text=f"Системный промпт изменен на #{prompt_number}: {SYSTEM_PROMPTS[prompt_number][:50]}...",
@@ -278,7 +290,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             random_message_id = random_message["message_id"]
             # Generate reply
             if await moderate_prompt(random_text):
-                response = await generate_text(random_text)
+                response = await generate_text(random_text, chat_id)
                 logger.info(f"Random reply to message '{random_text}' in chat {chat_id}")
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -286,7 +298,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_to_message_id=random_message_id
                 )
             else:
-                logger.warning(f"Random message '{random_text}' flagged by moderation, skipping reply")
+                logger.warning(f"Random message '{random_text}' flagged by moderation in chat {chat_id}, skipping reply")
 
     bot_names = ["Васян", "васян", "Васян,", "васян,", "васяна,", "Васяна,", "@GPTforGroups_bot"]
     generate_pic = ["нарисуй", "сгенерируй", "изобрази", "покажи"]
@@ -345,7 +357,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Handle text response
-    response = await generate_text(text)
+    response = await generate_text(text, chat_id)
     await context.bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=reply_to)
 
 # Run application
