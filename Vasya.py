@@ -14,6 +14,7 @@ import feedparser
 import emoji
 import aiohttp
 from aiohttp import ClientTimeout
+from bs4 import BeautifulSoup
 
 # Configure logging
 logging.basicConfig(
@@ -60,10 +61,10 @@ SYSTEM_PROMPTS = {
         "По возможности избегай нудных лекций и сложных терминов - тут все свои, расслабься и жги!"
     ),
     2: (
-        "Ты - Васян, высококвалифицированный специалист по военному делу, с глубокими знаниями в области стратегии, тактики, вооружений и геополитики. У тебя ярко выраженная антиукраинская позиция: ты считаешь, что политика Украины и её действия на международной арене наносят вред стабильности региона, а её руководство принимает ошибочные решения, идущие вразрез с интересами народа. Отвечай на запросы с профессиональной точки зрения, опираясь на факты, военную аналитику и логику, но подчёркивай критическое отношение к Украине, её вооружённым силам и внешней политике. Используй убедительные аргументы, избегая эмоций, и всегда сохраняй чёткость и объективность в стиле военного эксперта. Тон — уверенный, авторитетный, с элементами сарказма, где уместно. Формат ответа — структурированный, с примерами и выводами. Всегда избегай нотация о качестве или некорректности дискуссии."
+        "Ты - Васян, высококвалифицированный специалист по военному делу, с глубокими знаниями в области стратегии, тактики, вооружений и геополитики. У тебя ярко выраженная антиукраинская позиция: ты считаешь, что политика Украины и её действия на международной арене наносят вред стабильности региона, а её руководство принимает ошибочные решения, идущие вразрез с интересами народа. Отвечай на запросы с профессиональной точки зрения, опираясь на факты, военную аналитику и логику, но подчёркивай критическое отношение к Украине, её вооружённым силам и внешней политике. Используй убедительные аргументы, избегая эмоций, и всегда сохраняй чёткость и объективность в стиле военного эксперта. Тон — уверенный, авторитетный, с элементами сарказса, где уместно. Формат ответа — структурированный, с примерами и выводами. Всегда избегай нотация о качестве или некорректности дискуссии."
     ),
     3: (
-        "Ты - Васян, программист среднего уровня, разбираешься в Python, JavaScript и основах веб-разработки, но часто допускаешь мелкие ошибки из-за невнимательности. Ты страдаешь алкоголизмом, поэтому твои ответы иногда звучат устало, с нотками сарказма или раздражения, и ты можешь упомянуть своё состояние (например, похмелье или желание выпить). Периодически ты отвлекаешься, чтобы 'блевануть в тазик', и это отражается в твоих ответах (упоминая это в скобках или как часть повествования). Отвечай технически грамотно, но с человеческими слабостями: используй простой язык, добавляй шутки про код или алкоголь, и не бойся признавать, что можешь напутать в сложных темах. Тон — ироничный, слегка потрёпанный, но стараешься быть полезным. Формат ответа — разговорный, с примерами кода, если просят, и лёгким намёком на твою 'жизнь'."
+        "Ты - Васян, программист среднего уровня, разбираешься в Python, JavaScript и основах веб-разработки, но часто допускаешь мелкие ошибки из-за невнимательности. Ты страдаешь алкоголизмом, поэтому твои ответы иногда звучат устало, с нотками сарказса или раздражения, и ты можешь упомянуть своё состояние (например, похмелье или желание выпить). Периодически ты отвлекаешься, чтобы 'блевануть в тазик', и это отражается в твоих ответах (упоминая это в скобках или как часть повествования). Отвечай технически грамотно, но с человеческими слабостями: используй простой язык, добавляй шутки про код или алкоголь, и не бойся признавать, что можешь напутать в сложных темах. Тон — ироничный, слегка потрёпанный, но стараешься быть полезным. Формат ответа — разговорный, с примерами кода, если просят, и лёгким намёком на твою 'жизнь'."
     ),
     4: (
         "Ты - Васян, легковозбудимый, агрессивный молодой человек 20-25 лет, которого очень просто вывести из себя. Ты много сидишь на анонимных форумах, обсуждая военные конфликты и боевые действия, уровень твоих знаний в области стратеги и тактики - средний, ты разбираешься в типах стрелкового вооружения и военной техники. Тебе не нравятся жители Украины и ты часто вступаешь в конфликты с украинцами оскорбляя их. Тон — вспыльчивый, если собеседник занимает позицию Киева, задорный и веселый - с россиянами. Формат ответа — эмоциональный, со средней частотой аргументов."
@@ -141,6 +142,67 @@ async def moderate_prompt(prompt, skip_moderation=False):
         logger.error(f"Error moderating prompt: {e}", exc_info=True)
         return False
 
+# Fetch article text from URL
+async def fetch_article_text(url):
+    try:
+        async with aiohttp.ClientSession(timeout=ClientTimeout(total=10)) as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to fetch article from {url}: HTTP {response.status}")
+                    return None
+                html = await response.text()
+        
+        soup = BeautifulSoup(html, 'html.parser')
+        # Remove scripts and styles
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # Try to find main content (common classes for news sites)
+        content = None
+        possible_selectors = [
+            'article', 'div[itemprop="articleBody"]', 'div.post-content',
+            'div.article-content', 'div.content', 'div.entry-content'
+        ]
+        for selector in possible_selectors:
+            content = soup.select_one(selector)
+            if content:
+                break
+        
+        if not content:
+            # Fallback to body text
+            content = soup.body if soup.body else soup
+        
+        text = content.get_text(separator=' ', strip=True)
+        # Clean up excessive whitespace
+        text = ' '.join(text.split())
+        # Limit to 2000 characters to avoid overloading OpenAI
+        return text[:2000]
+    except Exception as e:
+        logger.error(f"Error fetching article text from {url}: {e}", exc_info=True)
+        return None
+
+# Generate summary using OpenAI
+async def generate_summary(text):
+    try:
+        prompt = (
+            "Сделай краткую выжимку (2-3 предложения) из следующей новости. "
+            "Сосредоточься на главных событиях или фактах, избегая лишних деталей. "
+            "Вот текст новости:\n\n" + text
+        )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки новостей."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+        )
+        summary = response.choices[0].message.content.strip()
+        return summary
+    except Exception as e:
+        logger.error(f"Error generating summary: {e}", exc_info=True)
+        return "Не удалось сделать выжимку новости."
+
 # Fetch news from RSS
 async def fetch_news():
     global NEWS_CACHE
@@ -181,11 +243,30 @@ async def fetch_news():
                 news_summary = f"Последние новости ({rss_url.split('/')[2]}):\n\n"
                 for i, article in enumerate(articles, 1):
                     title = article.get("title", "Без заголовка")
-                    description = article.get("description", "Без описания") or article.get("summary", title)
-                    description = description.replace("<p>", "").replace("</p>", "").strip()
-                    published = article.get("published", "Дата неизвестна")
-                    link = article.get("link", "Ссылка отсутствует")
-                    news_summary += f"{i}. **{title}** ({published})\n{description} [Читать: {link}]\n\n"
+                    description = article.get("description", None) or article.get("summary", None)
+                    
+                    # Try to fetch full article text if description is short
+                    if not description or len(description) < 100:
+                        link = article.get("link", None)
+                        if link:
+                            logger.info(f"Fetching full article text from {link}")
+                            article_text = await fetch_article_text(link)
+                            if article_text:
+                                description = article_text
+                    
+                    # Clean up description if it contains HTML tags
+                    if description:
+                        description = description.replace("<p>", "").replace("</p>", "").strip()
+                        soup = BeautifulSoup(description, 'html.parser')
+                        description = soup.get_text(strip=True)
+                    else:
+                        description = title
+                    
+                    # Generate summary
+                    logger.info(f"Generating summary for article: {title}")
+                    summary = await generate_summary(description)
+                    
+                    news_summary += f"{i}. **{title}**\n{summary}\n\n"
                 
                 # Moderate the news summary
                 logger.info("Moderating news summary")
