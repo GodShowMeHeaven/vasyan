@@ -315,7 +315,7 @@ async def summarize_chat(chat_id):
             return "Сообщения чата содержат запрещённый контент. Попробуйте другой запрос."
         
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки."},
                 {"role": "user", "content": prompt}
@@ -339,7 +339,7 @@ async def generate_text(prompt, chat_id):
     try:
         history = [{"role": "system", "content": get_system_prompt(chat_id)}] + get_conversation_history(chat_id) + [{"role": "user", "content": prompt}]
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=history,
             temperature=0.8,
         )
