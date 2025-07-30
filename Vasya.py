@@ -341,7 +341,8 @@ async def generate_text(prompt, chat_id):
         response = client.chat.completions.create(
             model="gpt-4",
             messages=history,
-            temperature=0.8,
+            temperature=1.0,
+            top_p=1.0
         )
         message = response.choices[0].message
         conversation_history = get_conversation_history(chat_id)
