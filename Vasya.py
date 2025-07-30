@@ -201,7 +201,7 @@ async def generate_summary(text):
             "Вот текст новости:\n\n" + text
         )
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": "Ты - аналитик, делающий краткие и точные выжимки новостей."},
                 {"role": "user", "content": prompt}
@@ -575,23 +575,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="Не удалось сгенерировать изображение. Возможно, запрос содержит запрещённые элементы или слишком короткий. Попробуйте что-то другое!",
                 reply_to_message_id=reply_to
             )
-        return
-
-    if any(rand in text.lower() for rand in generate_random):
-        prompt = text.lower()
-        for rand in generate_random:
-            prompt = prompt.replace(rand, "").strip()
-        recent_active_users = get_recent_active_users()
-        if recent_active_users:
-            random_user_id = random.choice(recent_active_users)
-            try:
-                random_member = await context.bot.get_chat_member(chat_id, random_user_id)
-                message_to_send = f"Ты сегодня {prompt} @{random_member.user.username}"
-                await context.bot.send_message(chat_id=chat_id, text=message_to_send, reply_to_message_id=reply_to)
-            except BadRequest:
-                await context.bot.send_message(chat_id=chat_id, text="Не удалось найти пользователя.", reply_to_message_id=reply_to)
-        else:
-            await context.bot.send_message(chat_id=chat_id, text="Нет активных пользователей за последние 6 часов.", reply_to_message_id=reply_to)
         return
 
     response = await generate_text(text, chat_id)
